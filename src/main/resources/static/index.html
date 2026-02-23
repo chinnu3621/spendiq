@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SpendIQ Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #1f4037, #99f2c8);
+            transition: 0.5s;
+        }
+
+        h2 {
+            text-align: center;
+            padding: 20px;
+            color: white;
+        }
+
+        #splash {
+            position: fixed;
+            width: 100%;
+            height: 100vh;
+            background: black;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+
+        #splash img {
+            width: 60%;
+            max-width: 500px;
+            animation: zoomFade 2s ease forwards;
+        }
+
+        @keyframes zoomFade {
+            0% { transform: scale(1.05); opacity: 0; }
+            30% { opacity: 1; }
+            80% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(1); opacity: 0; }
+        }
+
+        .slideOut {
+            animation: slideUp 1s ease forwards;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(0); }
+            to { transform: translateY(-100%); }
+        }
+
+        #mainContent {
+            display: none;
+            animation: fadeInMain 1s ease forwards;
+        }
+
+        @keyframes fadeInMain {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(15px);
+            border-radius: 15px;
+            padding: 25px;
+            margin: 25px auto;
+            width: 80%;
+            color: white;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        input, select {
+            padding: 10px;
+            margin: 8px;
+            border-radius: 8px;
+            border: none;
+        }
+
+        button {
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: none;
+            background: #00c6ff;
+            cursor: pointer;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        li {
+            padding: 10px;
+            margin: 8px 0;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .income { background: rgba(0,255,0,0.2); }
+        .expense { background: rgba(255,0,0,0.2); }
+
+        .dark-mode {
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+        }
+
+        canvas {
+            display: block;
+            margin: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+<div id="splash">
+    <img src="/logo.png">
+</div>
+
+<div id="mainContent">
+
+    <h2>SpendIQ Dashboard</h2>
+
+    <div style="text-align:center;">
+        <button onclick="toggleTheme()">Toggle Dark Mode</button>
+    </div>
+
+    <div class="card">
+        <h3>Add Transaction</h3>
+        <input type="text" id="description" placeholder="Description">
+        <input type="text" id="category" placeholder="Category">
+        <input type="number" id="amount" placeholder="Amount">
+        <select id="type">
+            <option value="INCOME">INCOME</option>
+            <option value="EXPENSE">EXPENSE</option>
+        </select>
+        <button onclick="addTransaction()">Add</button>
+    </div>
+
+    <div class="card">
+        <h3>Summary</h3>
+        <p>Total Income: ₹<span id="totalIncome">0</span></p>
+        <p>Total Expense: ₹<span id="totalExpense">0</span></p>
+        <p><b>Balance: ₹<span id="balance">0</span></b></p>
+    </div>
+
+    <div class="card">
+        <h3>Income vs Expense</h3>
+        <canvas id="pieChart" width="350" height="350"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>Monthly Analytics</h3>
+        <canvas id="monthlyChart" width="600" height="350"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>Expense by Category</h3>
+        <canvas id="categoryChart" width="500" height="350"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>Transactions</h3>
+        <ul id="transactionList"></ul>
+    </div>
+
+</div>
+
+<script>
+
+    let pieChart;
+    let monthlyChart;
+    let categoryChart;
+
+    window.onload = function() {
+        setTimeout(function() {
+            document.getElementById("splash").classList.add("slideOut");
+            setTimeout(function() {
+                document.getElementById("splash").style.display = "none";
+                document.getElementById("mainContent").style.display = "block";
+            },1000);
+        },2000);
+
+        loadTransactions();
+    };
+
+    function toggleTheme() {
+        document.body.classList.toggle("dark-mode");
+    }
+
+    function animateCounter(id, target) {
+        let current = 0;
+        const increment = target / 50;
+        const element = document.getElementById(id);
+
+        const timer = setInterval(() => {
+            current += increment;
+            if (current >= target) {
+                element.innerText = target.toFixed(2);
+                clearInterval(timer);
+            } else {
+                element.innerText = current.toFixed(0);
+            }
+        }, 20);
+    }
+
+    function loadTransactions() {
+        fetch('/api/transactions')
+            .then(res => res.json())
+            .then(data => {
+
+                const list = document.getElementById("transactionList");
+                list.innerHTML = "";
+
+                let income = 0;
+                let expense = 0;
+
+                data.forEach(t => {
+
+                    if(t.type === "INCOME") income += t.amount;
+                    else expense += t.amount;
+
+                    const li = document.createElement("li");
+                    li.className = t.type === "INCOME" ? "income" : "expense";
+
+                    li.innerHTML =
+                        t.description + " (" + t.category + ") - ₹" + t.amount +
+                        " <button onclick='deleteTransaction("+t.id+")'>Delete</button>";
+
+                    list.appendChild(li);
+                });
+
+                animateCounter("totalIncome", income);
+                animateCounter("totalExpense", expense);
+                animateCounter("balance", income - expense);
+
+                updateChart(income, expense);
+                updateMonthlyChart(data);
+                updateCategoryChart(data);
+            });
+    }
+
+    function addTransaction() {
+
+        fetch('/api/transactions', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                description: description.value,
+                category: category.value,
+                amount: amount.value,
+                type: type.value
+            })
+        }).then(() => loadTransactions());
+    }
+
+    function deleteTransaction(id) {
+        fetch('/api/transactions/' + id, {
+            method: 'DELETE'
+        }).then(() => loadTransactions());
+    }
+
+    function updateChart(income, expense) {
+
+        if(pieChart) pieChart.destroy();
+
+        pieChart = new Chart(document.getElementById('pieChart'), {
+            type: 'pie',
+            data: {
+                labels: ['Income','Expense'],
+                datasets: [{
+                    data: [income, expense],
+                    backgroundColor: ['#00ff88','#ff4d4d']
+                }]
+            }
+        });
+    }
+
+    function updateMonthlyChart(data) {
+
+        const monthlyMap = {};
+
+        data.forEach(t => {
+            const date = new Date(t.date);
+            const key = date.getFullYear()+"-"+(date.getMonth()+1);
+
+            if(!monthlyMap[key]){
+                monthlyMap[key] = {income:0, expense:0};
+            }
+
+            if(t.type==="INCOME")
+                monthlyMap[key].income += t.amount;
+            else
+                monthlyMap[key].expense += t.amount;
+        });
+
+        const sorted = Object.keys(monthlyMap).sort((a,b)=> new Date(a)-new Date(b));
+
+        const labels = sorted.map(m=>{
+            const parts = m.split("-");
+            return new Date(parts[0],parts[1]-1)
+                .toLocaleString('default',{month:'short',year:'numeric'});
+        });
+
+        const incomeData = sorted.map(m=>monthlyMap[m].income);
+        const expenseData = sorted.map(m=>monthlyMap[m].expense);
+
+        if(monthlyChart) monthlyChart.destroy();
+
+        monthlyChart = new Chart(document.getElementById('monthlyChart'),{
+            type:'bar',
+            data:{
+                labels:labels,
+                datasets:[
+                    {label:'Income',data:incomeData,backgroundColor:'#00ff88'},
+                    {label:'Expense',data:expenseData,backgroundColor:'#ff4d4d'}
+                ]
+            },
+            options:{
+                animation:{duration:1500},
+                scales:{y:{beginAtZero:true}}
+            }
+        });
+    }
+
+    function updateCategoryChart(data){
+
+        const categoryData={};
+
+        data.forEach(t=>{
+            if(t.type==="EXPENSE"){
+                if(!categoryData[t.category])
+                    categoryData[t.category]=0;
+
+                categoryData[t.category]+=t.amount;
+            }
+        });
+
+        if(categoryChart) categoryChart.destroy();
+
+        categoryChart = new Chart(document.getElementById('categoryChart'),{
+            type:'doughnut',
+            data:{
+                labels:Object.keys(categoryData),
+                datasets:[{
+                    data:Object.values(categoryData),
+                    backgroundColor:[
+                        '#ff6384','#36a2eb','#ffce56',
+                        '#4bc0c0','#9966ff','#ff9f40'
+                    ]
+                }]
+            }
+        });
+    }
+
+</script>
+
+</body>
+</html>
